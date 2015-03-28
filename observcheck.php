@@ -605,8 +605,9 @@ class SunriseChecker implements ICheckable {
      */
     private function checkSunriseTime($i, $riseLabel, $obsAvg, $realAvg) {
         $name = "Čas východu/západu $i";
+        $riseTimeTolerance = Config::getConf('riseTimeTolerance', self::class);
         
-        if(abs($obsAvg - $realAvg) < 120) {
+        if(abs($obsAvg - $realAvg) < $riseTimeTolerance) {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Čas $riseLabel $i je správně.", null);
         }
         else {
@@ -625,8 +626,9 @@ class SunriseChecker implements ICheckable {
      */
     private function checkSunriseDuration($i, $riseLabel, $obsDiff, $realDiff) {
         $name = "Trvání východu/západu $i";
+        $riseDurationTolerance = Config::getConf('riseDurationTolerance', self::class);
         
-        if(abs($obsDiff - $realDiff) < 30) {
+        if(abs($obsDiff - $realDiff) < $riseDurationTolerance) {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Trvání $riseLabel $i je správně.", null);
         }
         else {
@@ -645,8 +647,9 @@ class SunriseChecker implements ICheckable {
      */
     private function checkSunriseAzimuth($i, $riseLabel, $obsAz, $realAz) {
         $name = "Azimut $i";
+        $azimuthTolerance = Config::getConf('azimuthTolerance', self::class);
         
-        if(abs($obsAz-$realAz) < 5){
+        if(abs($obsAz-$realAz) < $azimuthTolerance){
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Azimut $riseLabel $i je správně.", null);
         }
         else {
@@ -699,7 +702,8 @@ class SunriseChecker implements ICheckable {
      * @return array
      */
     private function getSunriseData(DateTime $time, Position $position, $Ha, $upperLimb) {
-        $SD = 16.3/60;
+        //$SD = 16.3/60;
+        $SD = Config::getConf('semidiameter', self::class)/60;
         
         $R = 1/tan(($Ha+7.31/($Ha+4.4))/180*pi())/60;
         //$R = 42; //todo
@@ -916,7 +920,7 @@ class PositionChecker implements ICheckable {
     
     private function checkPositionInvariance() {
         $name = "Stálost pozorovacího místa";
-        $allowedDistance = 200;
+        $allowedDistance = Config::getConf("allowedDistance", self::class);
         
         $posA = $this->input->getObservation('A')->getPosition();
         $posB = $this->input->getObservation('B')->getPosition();
@@ -942,7 +946,7 @@ class PositionChecker implements ICheckable {
      * @return float Distance in metres
      */
     private function getDistance(Position $posA, Position $posB) {
-        $R = 6371000;
+        $R = Config::getConf("R", self::class);
         
         $latA = $posA->getLatitude()/180*pi();
         $latB = $posB->getLatitude()/180*pi();
@@ -950,5 +954,21 @@ class PositionChecker implements ICheckable {
         $lonB = $posB->getLongitude()/180*pi();
         
         return acos(sin($latA)*sin($latB) + cos($latA)*cos($latB)*cos($lonA-$lonB))*$R;
+    }
+}
+
+class Config {
+    /**
+     *
+     * @var array 
+     */
+    private static $config = null;
+    
+    public static function getConf($key, $scope) {
+        if(self::$config === null) {
+            self::$config = parse_ini_file("./observcheck.ini", true);
+        }
+        
+        return self::$config[$scope][$key];
     }
 }

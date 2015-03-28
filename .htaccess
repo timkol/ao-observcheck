@@ -1,0 +1,7 @@
+# disable directory listing
+Options -Indexes
+
+<Files observcheck.ini>
+    Order Allow,Deny
+    Deny from all
+</Files>
