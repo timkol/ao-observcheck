@@ -840,3 +840,68 @@ class SunriseChecker implements ICheckable {
         }
     }
 }
+
+class PositionChecker implements ICheckable {
+        
+    /**
+     *
+     * @var CheckInput 
+     */
+    private $input;
+    
+    /**
+     *
+     * @var CheckOutput[] 
+     */
+    private $outputObject;
+    
+    /**
+     * 
+     * @param CheckInput $input
+     * @param CheckOutput[] $outputObject
+     */
+    public function Check(CheckInput $input, &$outputObject) {
+        $this->input = $input;
+        $this->outputObject = &$outputObject;
+        
+        $this->checkPositionInvariance();
+    }
+    
+    private function checkPositionInvariance() {
+        $name = "Stálost pozorovacího místa";
+        $allowedDistance = 200;
+        
+        $posA = $this->input->getObservation('A')->getPosition();
+        $posB = $this->input->getObservation('B')->getPosition();
+        $posC = $this->input->getObservation('C')->getPosition();
+        
+        $dist['AB'] = $this->getDistance($posA, $posB);
+        $dist['BC'] = $this->getDistance($posC, $posB);
+        $dist['AC'] = $this->getDistance($posA, $posC);
+        
+        $maxDist = max($dist);
+        if($maxDist > $allowedDistance) {
+            $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Vzdálenost min. 2 poz. míst je $maxDist m.", null);
+        }
+        else {
+            $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Vzdálenost poz. míst je v toleranci.", null);
+        }
+    }
+    
+    /**
+     * 
+     * @param Position $posA
+     * @param Position $posB
+     * @return float Distance in metres
+     */
+    private function getDistance(Position $posA, Position $posB) {
+        $R = 6371000;
+        
+        $latA = $posA->getLatitude()/180*pi();
+        $latB = $posB->getLatitude()/180*pi();
+        $lonA = $posA->getLongitude()/180*pi();
+        $lonB = $posB->getLongitude()/180*pi();
+        
+        return acos(sin($latA)*sin($latB) + cos($latA)*cos($latB)*cos($lonA-$lonB))*$R;
+    }
+}
