@@ -100,19 +100,28 @@ class CheckInput {
     private $time_diffs = array();
     
     /**
+     *
+     * @var string 
+     */
+    private $eval;
+
+
+    /**
      * 
      * @param Observation $obsA
      * @param Observation $obsB
      * @param Observation $obsC
      * @param DateTime $tAB
      * @param DateTime $tBC
+     * @param string $evaluation
      */
-    public function __construct(Observation $obsA, Observation $obsB, Observation $obsC, DateTime $tAB, DateTime $tBC) {
+    public function __construct(Observation $obsA, Observation $obsB, Observation $obsC, DateTime $tAB, DateTime $tBC, $evaluation) {
         $this->observations['A'] = $obsA;
         $this->observations['B'] = $obsB;
         $this->observations['C'] = $obsC;
         $this->time_diffs['AB'] = $tAB;
         $this->time_diffs['BC'] = $tBC;
+        $this->eval = $evaluation;
     }
     
     /**
@@ -131,6 +140,14 @@ class CheckInput {
      */
     public function getTimeDifference($i) {
         return $this->time_diffs[$i];
+    }
+    
+    /**
+     * 
+     * @return sting
+     */
+    public function getEvaluation() {
+        return $this->eval;
     }
 }
 
@@ -166,19 +183,27 @@ class Observation {
     private $az;
     
     /**
+     *
+     * @var string 
+     */
+    private $note;
+    
+    /**
      * 
      * @param Position $position
      * @param DateTime $t1
      * @param DateTime $t2
      * @param DateTime $tAvg
      * @param float $azimuth
+     * @param string $note
      */
-    public function __construct(Position $position, DateTime $t1, DateTime $t2, DateTime $tAvg, $azimuth) {
+    public function __construct(Position $position, DateTime $t1, DateTime $t2, DateTime $tAvg, $azimuth, $note) {
         $this->position = $position;
         $this->t1 = $t1;
         $this->t2 = $t2;
         $this->tAvg = $tAvg;
         $this->az = $azimuth;
+        $this->note = $note;
     }
     
     /**
@@ -219,6 +244,14 @@ class Observation {
      */
     public function getAzimuth() {
         return $this->az;
+    }
+    
+    /**
+     * 
+     * @return string
+     */
+    public function getNote() {
+        return $this->note;
     }
 }
 
@@ -319,8 +352,13 @@ class CSVPresenter {
     
     private function prepareData() {
         //head
+        $this->outputData[0][] = "Pupil ID";
+        $this->outputData[0][] = "Obs. A Note";
+        $this->outputData[0][] = "Obs. B Note";
+        $this->outputData[0][] = "Obs. C Note";
+        $this->outputData[0][] = "Evaluation";
+        
         $cols = array();
-//        print_r($data);
         $temp = array_values($this->raw_data)[0]['output'];
         foreach ($temp as $column => $output) {
             $cols[] = $column;
@@ -330,9 +368,17 @@ class CSVPresenter {
         //body
         foreach ($this->raw_data as $pupID => $row) {
             $outputRow = array();
+            
+            $outputRow[] = $pupID;
+            $outputRow[] = $row['input']->getObservation('A')->getNote();
+            $outputRow[] = $row['input']->getObservation('B')->getNote();
+            $outputRow[] = $row['input']->getObservation('C')->getNote();
+            $outputRow[] = $row['input']->getEvaluation();
+            
             foreach ($cols as $column) {
                 $outputRow[] = $row['output'][$column]->getMessage();
             }
+            
             $this->outputData[] = $outputRow;
         }
     }
@@ -378,6 +424,7 @@ class ObservcheckModel {
     }
 
     private function loadData() {
+        $this->connection->query("SET names utf8");
         $res = $this->connection->query("SELECT * FROM AO_home_observ");
         while($row = $res->fetch_assoc()) {
             for($i=1; $i<=3; $i++){
@@ -394,12 +441,12 @@ class ObservcheckModel {
                 $t2->setDate($year, $month, $day);
                 $tAvg->setDate($year, $month, $day);
                 $position = new Position($row["obs".$i."_gps_lat"], $row["obs".$i."_gps_lon"], $row["obs".$i."_a_str"], $row["obs".$i."_a_place"], $row["obs".$i."_a_zip"]);
-                $observations[$i] = new Observation($position, $t1, $t2, $tAvg, $row["obs".$i."_azim"]);
+                $observations[$i] = new Observation($position, $t1, $t2, $tAvg, $row["obs".$i."_azim"], $row["obs".$i."_a_note"]);
             }
             
             $tAB = new DateTime($row["dtime_ab"]);
             $tBC = new DateTime($row["dtime_bc"]);
-            $input = new CheckInput($observations[1], $observations[2], $observations[3], $tAB, $tBC);
+            $input = new CheckInput($observations[1], $observations[2], $observations[3], $tAB, $tBC, $row["obs_eval"]);
             
             $this->data[$row['observ_pupil_ID']]['input'] = $input;
         }
@@ -881,7 +928,7 @@ class PositionChecker implements ICheckable {
         
         $maxDist = max($dist);
         if($maxDist > $allowedDistance) {
-            $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Vzdálenost min. 2 poz. míst je $maxDist m.", null);
+            $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Vzdálenost min. 2 poz. míst je ".round($maxDist)." m.", null);
         }
         else {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Vzdálenost poz. míst je v toleranci.", null);
