@@ -356,8 +356,8 @@ class CSVPresenter {
         $this->raw_data = $data;
         $this->prepareData();
         
-        //header('Content-Type: text/csv; charset=utf-8');
-        //header('Content-Disposition: attachment; filename=data.csv');
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename=data.csv');
         
         $output = fopen('php://output', 'w');
         
@@ -385,8 +385,6 @@ class CSVPresenter {
         foreach ($diffLabels as $lbl) {
             $this->outputData[0][] = "t$lbl";
         }
-        //$this->outputData[0][] = "Obs. B Note";
-        //$this->outputData[0][] = "Obs. C Note";
         $this->outputData[0][] = "Evaluation";
         
         $cols = array();
@@ -415,8 +413,6 @@ class CSVPresenter {
             foreach ($diffLabels as $lbl) {
                 $outputRow[] = $row['input']->getTimeDifference($lbl)->format('H:i:s');
             }
-            //$outputRow[] = $row['input']->getObservation('B')->getNote();
-            //$outputRow[] = $row['input']->getObservation('C')->getNote();
             $outputRow[] = $row['input']->getEvaluation();
             
             foreach ($cols as $column) {
@@ -469,7 +465,7 @@ class ObservcheckModel {
 
     private function loadData() {
         $this->connection->query("SET names utf8");
-        $res = $this->connection->query("SELECT * FROM v_observcheck where observ_pupil_ID=332 limit 1");
+        $res = $this->connection->query("SELECT * FROM v_observcheck");
         while($row = $res->fetch_assoc()) {
             for($i=1; $i<=3; $i++){
                 $dt = new DateTime($row["obs".$i."_dt"]);
@@ -593,15 +589,24 @@ class ComputationChecker implements ICheckable {
         
         $seconds_their = ($tAB->format("H")*60 + $tAB->format("i"))*60 + $tAB->format("s");
         
-        $diff = $tA->diff($tB);
-        if($diff->days == 0) {
+        //$diff = $tA->diff($tB);
+        
+        $daysOur = abs($tB->format('z') - $tA->format('z'));
+        $secA = ($tA->format("H")*60 + $tA->format("i"))*60 + $tA->format("s");
+        $secB = ($tB->format("H")*60 + $tB->format("i"))*60 + $tB->format("s");
+        $totalSecOur = abs($secA-$secB);
+        
+        if($daysOur == 0) {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Výpočet rozdílu pozorování $i je špatně. Nulový odstup mezi dny.", null);
             return;
         }
+                       
+        //$seconds_our_diff = ($diff->h*60 + $diff->i)*60 + $diff->s;
+        //$seconds_our = floor($seconds_our_diff/$diff->days);
+        //$seconds_our_min1 = (($diff->days != 1)?(floor($seconds_our_diff/($diff->days-1))):(-1));
         
-        $seconds_our_diff = ($diff->h*60 + $diff->i)*60 + $diff->s;
-        $seconds_our = floor($seconds_our_diff/$diff->days);
-        $seconds_our_min1 = (($diff->days != 1)?(floor($seconds_our_diff/($diff->days-1))):(-1));        
+        $seconds_our = round($totalSecOur/$daysOur);
+        $seconds_our_min1 = (($daysOur != 1)?(round($totalSecOur/($daysOur-1))):(-1));
 
         if($seconds_our == $seconds_their) {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Výpočet rozdílu pozorování $i je správně.", null);
@@ -609,7 +614,7 @@ class ComputationChecker implements ICheckable {
         else if($seconds_our_min1 == $seconds_their) {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Výpočet rozdílu pozorování $i je špatně. \n Počítal o den méně.", null);
         }
-        else if($seconds_our_diff == $seconds_their) {
+        else if($totalSecOur == $seconds_their) {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Výpočet rozdílu pozorování $i je špatně. \n Nevydělil počtem dnů.", null);
         }
         else {
@@ -702,8 +707,14 @@ class SunriseChecker implements ICheckable {
         $name = "Azimut $i";
         $azimuthTolerance = Config::getConf('azimuthTolerance', self::class);
         
+        $obsCivilAz = $obsAz + 180;
+        $obsCivilAz = $obsCivilAz - 360*floor($obsCivilAz/360);
+        
         if(abs($obsAz-$realAz) < $azimuthTolerance){
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Azimut $riseLabel $i je správně.", null);
+        }
+        else if(abs($obsCivilAz-$realAz) < $azimuthTolerance){
+            $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Azimut $riseLabel $i je špatně. \n Udán občanský azimut.", null);
         }
         else {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Azimut $riseLabel $i je špatně. \n Hodnota pozorovatele: ".round($obsAz)."° \n Naše hodnota: ".round($realAz)."°", null);
