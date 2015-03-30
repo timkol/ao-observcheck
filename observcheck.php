@@ -104,6 +104,12 @@ class CheckInput {
      * @var string 
      */
     private $eval;
+    
+    /**
+     *
+     * @var string 
+     */
+    private $category;
 
 
     /**
@@ -114,14 +120,16 @@ class CheckInput {
      * @param DateTime $tAB
      * @param DateTime $tBC
      * @param string $evaluation
+     * @param string $category
      */
-    public function __construct(Observation $obsA, Observation $obsB, Observation $obsC, DateTime $tAB, DateTime $tBC, $evaluation) {
+    public function __construct(Observation $obsA, Observation $obsB, Observation $obsC, DateTime $tAB, DateTime $tBC, $evaluation, $category) {
         $this->observations['A'] = $obsA;
         $this->observations['B'] = $obsB;
         $this->observations['C'] = $obsC;
         $this->time_diffs['AB'] = $tAB;
         $this->time_diffs['BC'] = $tBC;
         $this->eval = $evaluation;
+        $this->category = $category;
     }
     
     /**
@@ -148,6 +156,14 @@ class CheckInput {
      */
     public function getEvaluation() {
         return $this->eval;
+    }
+    
+    /**
+     * 
+     * @return string
+     */
+    public function getCategory() {
+        return $this->category;
     }
 }
 
@@ -340,8 +356,8 @@ class CSVPresenter {
         $this->raw_data = $data;
         $this->prepareData();
         
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename=data.csv');
+        //header('Content-Type: text/csv; charset=utf-8');
+        //header('Content-Disposition: attachment; filename=data.csv');
         
         $output = fopen('php://output', 'w');
         
@@ -351,11 +367,26 @@ class CSVPresenter {
     }
     
     private function prepareData() {
+        $observLabels = array('A', 'B', 'C');
+        $diffLabels = array('AB', 'BC');
+        
         //head
         $this->outputData[0][] = "Pupil ID";
-        $this->outputData[0][] = "Obs. A Note";
-        $this->outputData[0][] = "Obs. B Note";
-        $this->outputData[0][] = "Obs. C Note";
+        $this->outputData[0][] = "Category";
+        foreach ($observLabels as $lbl) {
+            $this->outputData[0][] = "Obs. $lbl t1";
+            $this->outputData[0][] = "Obs. $lbl t2";
+            $this->outputData[0][] = "Obs. $lbl tAvg";
+            $this->outputData[0][] = "Obs. $lbl Az";
+            $this->outputData[0][] = "Obs. $lbl Lon";
+            $this->outputData[0][] = "Obs. $lbl Lat";
+            $this->outputData[0][] = "Obs. $lbl Note";
+        }
+        foreach ($diffLabels as $lbl) {
+            $this->outputData[0][] = "t$lbl";
+        }
+        //$this->outputData[0][] = "Obs. B Note";
+        //$this->outputData[0][] = "Obs. C Note";
         $this->outputData[0][] = "Evaluation";
         
         $cols = array();
@@ -370,9 +401,22 @@ class CSVPresenter {
             $outputRow = array();
             
             $outputRow[] = $pupID;
-            $outputRow[] = $row['input']->getObservation('A')->getNote();
-            $outputRow[] = $row['input']->getObservation('B')->getNote();
-            $outputRow[] = $row['input']->getObservation('C')->getNote();
+            $outputRow[] = $row['input']->getCategory();
+            foreach ($observLabels as $lbl) {
+                $obs = $row['input']->getObservation($lbl);
+                $outputRow[] = $obs->getTime1()->format('Y-m-d H:i:s');
+                $outputRow[] = $obs->getTime2()->format('Y-m-d H:i:s');
+                $outputRow[] = $obs->getAvgTime()->format('Y-m-d H:i:s');
+                $outputRow[] = $obs->getAzimuth()."°";
+                $outputRow[] = $obs->getPosition()->getLongitude();
+                $outputRow[] = $obs->getPosition()->getLatitude();
+                $outputRow[] = $obs->getNote();
+            }
+            foreach ($diffLabels as $lbl) {
+                $outputRow[] = $row['input']->getTimeDifference($lbl)->format('H:i:s');
+            }
+            //$outputRow[] = $row['input']->getObservation('B')->getNote();
+            //$outputRow[] = $row['input']->getObservation('C')->getNote();
             $outputRow[] = $row['input']->getEvaluation();
             
             foreach ($cols as $column) {
@@ -425,7 +469,7 @@ class ObservcheckModel {
 
     private function loadData() {
         $this->connection->query("SET names utf8");
-        $res = $this->connection->query("SELECT * FROM AO_home_observ");
+        $res = $this->connection->query("SELECT * FROM v_observcheck where observ_pupil_ID=332 limit 1");
         while($row = $res->fetch_assoc()) {
             for($i=1; $i<=3; $i++){
                 $dt = new DateTime($row["obs".$i."_dt"]);
@@ -446,7 +490,7 @@ class ObservcheckModel {
             
             $tAB = new DateTime($row["dtime_ab"]);
             $tBC = new DateTime($row["dtime_bc"]);
-            $input = new CheckInput($observations[1], $observations[2], $observations[3], $tAB, $tBC, $row["obs_eval"]);
+            $input = new CheckInput($observations[1], $observations[2], $observations[3], $tAB, $tBC, $row["obs_eval"], $row["pupil_category"]);
             
             $this->data[$row['observ_pupil_ID']]['input'] = $input;
         }
@@ -554,13 +598,22 @@ class ComputationChecker implements ICheckable {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Výpočet rozdílu pozorování $i je špatně. Nulový odstup mezi dny.", null);
             return;
         }
-        $seconds_our = (($diff->h*60 + $diff->i)*60 + $diff->s)/$diff->days;
         
+        $seconds_our_diff = ($diff->h*60 + $diff->i)*60 + $diff->s;
+        $seconds_our = floor($seconds_our_diff/$diff->days);
+        $seconds_our_min1 = (($diff->days != 1)?(floor($seconds_our_diff/($diff->days-1))):(-1));        
+
         if($seconds_our == $seconds_their) {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Výpočet rozdílu pozorování $i je správně.", null);
         }
+        else if($seconds_our_min1 == $seconds_their) {
+            $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Výpočet rozdílu pozorování $i je špatně. \n Počítal o den méně.", null);
+        }
+        else if($seconds_our_diff == $seconds_their) {
+            $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Výpočet rozdílu pozorování $i je špatně. \n Nevydělil počtem dnů.", null);
+        }
         else {
-            $tNas = date("H:i:s", $seconds_our);
+            $tNas = gmdate("H:i:s", $seconds_our);
             $tPoz = $tAB->format("H:i:s");
             $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Výpočet rozdílu pozorování $i je špatně. \n Hodnota pozorovatele: $tPoz \n Naše hodnota: $tNas", null);
         }
@@ -632,8 +685,8 @@ class SunriseChecker implements ICheckable {
             $this->outputObject[$name] = new CheckOutput($this->input, $name, true, "Trvání $riseLabel $i je správně.", null);
         }
         else {
-            $tNas = date("H:i:s", $realDiff);
-            $tPoz = date("H:i:s", $obsDiff);
+            $tNas = gmdate("H:i:s", $realDiff);
+            $tPoz = gmdate("H:i:s", $obsDiff);
             $this->outputObject[$name] = new CheckOutput($this->input, $name, false, "Trvání $riseLabel $i je špatně. \n Hodnota pozorovatele: $tPoz \n Naše hodnota: $tNas", null);
         }
     }
@@ -665,14 +718,19 @@ class SunriseChecker implements ICheckable {
         $observation = $this->input->getObservation($i);
         $t1 = $observation->getTime1();
         $t2 = $observation->getTime2();
+//        $real2 = date_sun_info($t1->getTimestamp(), $observation->getPosition()->getLatitude(), $observation->getPosition()->getLongitude());
+//        foreach ($real2 as $key => $val) {
+//            echo "$key: " . gmdate("H:i:s", $val) . "\n";
+//        }
         
         $data_upper = $this->getSunriseData($t1, $observation->getPosition(), 0, true);
         $data_lower = $this->getSunriseData($t2, $observation->getPosition(), 0, false);
         
         $riseLabel = (($data_lower['rise'])?"východu":"západu");
         
-        $obsAvg = 0.5*($t1->getTimestamp() + $t2->getTimestamp());
-        $realAvg = 0.5*($data_lower['time']->getTimestamp() + $data_upper['time']->getTimestamp());
+        $obsAvg = floor(0.5*($t1->getTimestamp() + $t2->getTimestamp()));
+//        var_dump($obsAvg);
+        $realAvg = floor(0.5*($data_lower['time']->getTimestamp() + $data_upper['time']->getTimestamp()));
         $this->checkSunriseTime($i, $riseLabel, $obsAvg, $realAvg);
         
         $obsDiff = abs($t1->getTimestamp() - $t2->getTimestamp());
@@ -952,8 +1010,11 @@ class PositionChecker implements ICheckable {
         $latB = $posB->getLatitude()/180*pi();
         $lonA = $posA->getLongitude()/180*pi();
         $lonB = $posB->getLongitude()/180*pi();
-        
-        return acos(sin($latA)*sin($latB) + cos($latA)*cos($latB)*cos($lonA-$lonB))*$R;
+        $cosD = sin($latA)*sin($latB) + cos($latA)*cos($latB)*cos($lonA-$lonB);
+        if($cosD > 1) {
+            $cosD = 1;
+        }
+        return acos($cosD)*$R;
     }
 }
 
